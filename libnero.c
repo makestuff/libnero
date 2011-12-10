@@ -150,13 +150,14 @@ NeroStatus neroClockFSM(
 	struct NeroHandle *handle, uint32 bitPattern, uint8 transitionCount, const char **error)
 {
 	NeroStatus returnCode;
+	const uint32 lePattern = littleEndian32(bitPattern);
 	int uStatus = usb_control_msg(
 		handle->device,
 		USB_ENDPOINT_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 		CMD_JTAG_CLOCK_FSM,       // bRequest
 		(uint16)transitionCount,  // wValue
 		0x0000,                   // wIndex
-		(char*)&bitPattern,
+		(char*)&lePattern,
 		4,                        // wLength
 		5000                      // timeout (ms)
 	);
@@ -203,6 +204,7 @@ static NeroStatus beginShift(
 	bool isResponseNeeded, const char **error)
 {
 	NeroStatus returnCode;
+	const uint32 leNumBits = littleEndian32(numBits);
 	uint16 wValue = 0x0000;
 	int uStatus;
 	if ( isLast ) {
@@ -218,7 +220,7 @@ static NeroStatus beginShift(
 		CMD_JTAG_CLOCK_DATA,  // bRequest
 		wValue,               // wValue
 		0x0000,               // wIndex
-		(char*)&numBits,      // send bit count
+		(char*)&leNumBits,      // send bit count
 		4,                    // wLength
 		5000                  // timeout (ms)
 	);
@@ -314,9 +316,9 @@ static NeroStatus setEndpointSize(struct NeroHandle *handle, const char **error)
 			endpointDesc = (struct usb_endpoint_descriptor *)ptr;
 			if ( endpointDesc-> bmAttributes == 0x02 ) {
 				if ( endpointDesc->bEndpointAddress == 0x02 ) {
-					ep2size = endpointDesc->wMaxPacketSize;
+					ep2size = littleEndian16(endpointDesc->wMaxPacketSize);
 				} else if ( endpointDesc->bEndpointAddress == 0x84 ) {
-					ep4size = endpointDesc->wMaxPacketSize;
+					ep4size = littleEndian16(endpointDesc->wMaxPacketSize);
 				}
 			}
 			ptr += endpointDesc->bLength;
@@ -355,7 +357,7 @@ static NeroStatus setJtagMode(struct NeroHandle *handle, bool enable, const char
 		MODE_JTAG,                // wMask
 		NULL,
 		0,                        // wLength
-		100                       // timeout (ms)
+		5000                      // timeout (ms)
 	);
 	if ( uStatus < 0 ) {
 		errRender(
