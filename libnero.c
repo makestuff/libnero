@@ -162,7 +162,7 @@ NeroStatus neroClockFSM(
 		5000                      // timeout (ms)
 	);
 	if ( uStatus < 0 ) {
-		errRender(error, "neroClockFSM(): %s", usb_strerror());
+		errRender(error, "neroClockFSM(): %s (%d)", usb_strerror(), uStatus);
 		FAIL(NERO_CLOCKFSM);
 	}
 	return NERO_SUCCESS;
@@ -185,7 +185,7 @@ NeroStatus neroClocks(struct NeroHandle *handle, uint32 numClocks, const char **
 		5000               // timeout (ms)
 	);
 	if ( uStatus < 0 ) {
-		errRender(error, "neroClocks(): %s", usb_strerror());
+		errRender(error, "neroClocks(): %s (%d)", usb_strerror(), uStatus);
 		FAIL(NERO_CLOCKS);
 	}
 	return NERO_SUCCESS;
@@ -225,7 +225,7 @@ static NeroStatus beginShift(
 		5000                  // timeout (ms)
 	);
 	if ( uStatus < 0 ) {
-		errRender(error, "beginShift(): %s", usb_strerror());
+		errRender(error, "beginShift(): %s (%d)", usb_strerror(), uStatus);
 		FAIL(NERO_BEGIN_SHIFT);
 	}
 	return NERO_SUCCESS;
@@ -247,7 +247,7 @@ static NeroStatus doSend(
 		5000                     // timeout in milliseconds
 	);
 	if ( uStatus < 0 ) {
-		errRender(error, "doSend(): %s", usb_strerror());
+		errRender(error, "doSend(): %s (%d)", usb_strerror(), uStatus);
 		FAIL(NERO_SEND);
 	}
 	return NERO_SUCCESS;
@@ -269,7 +269,7 @@ static NeroStatus doReceive(
 		5000                    // timeout in milliseconds
 	);
 	if ( uStatus < 0 ) {
-		errRender(error, "doReceive(): %s", usb_strerror());
+		errRender(error, "doReceive(): %s (%d)", usb_strerror(), uStatus);
 		FAIL(NERO_RECEIVE);
 	}
 	return NERO_SUCCESS;
@@ -303,7 +303,7 @@ static NeroStatus setEndpointSize(struct NeroHandle *handle, const char **error)
 	);
 	if ( uStatus < 0 ) {
 		errRender(
-			error, "setEndpointSize(): Failed to get config descriptor: %s", usb_strerror());
+			error, "setEndpointSize(): Failed to get config descriptor: %s (%d)", usb_strerror(), uStatus);
 		FAIL(NERO_ENDPOINTS);
 	}
 	if ( uStatus > 0 ) {
@@ -361,8 +361,8 @@ static NeroStatus setJtagMode(struct NeroHandle *handle, bool enable, const char
 	);
 	if ( uStatus < 0 ) {
 		errRender(
-			error, "setJtagMode(): Unable to %s JTAG mode: %s",
-			enable ? "enable" : "disable", usb_strerror());
+			error, "setJtagMode(): Unable to %s JTAG mode: %s (%d)",
+			enable ? "enable" : "disable", usb_strerror(), uStatus);
 		FAIL(NERO_ENABLE);
 	}
 	return NERO_SUCCESS;
