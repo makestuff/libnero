@@ -70,10 +70,13 @@ static NeroStatus setJtagMode(
 // Find the NeroJTAG device, open it.
 //
 NeroStatus neroInitialise(
-	struct usb_dev_handle *device, struct NeroHandle *handle, const char **error)
+	struct usb_dev_handle *device, struct NeroHandle *handle, uint8 outEndpoint, uint8 inEndpoint,
+	const char **error)
 {
 	NeroStatus returnCode, nStatus;
 	handle->device = device;
+	handle->outEndpoint = outEndpoint;
+	handle->inEndpoint = inEndpoint;
 	nStatus = setEndpointSize(handle, error);
 	CHECK_STATUS(nStatus, "neroInitialise()", NERO_ENDPOINTS);
 	nStatus = setJtagMode(handle, true, error);
@@ -245,10 +248,10 @@ static NeroStatus doSend(
 	NeroStatus returnCode;
 	int uStatus = usb_bulk_write(
 		handle->device,
-		USB_ENDPOINT_OUT | 2,    // write to endpoint 2
-		(char *)sendPtr,         // write from send buffer
-		chunkSize,               // write this many bytes
-		5000                     // timeout in milliseconds
+		USB_ENDPOINT_OUT | handle->outEndpoint,  // write to out endpoint
+		(char *)sendPtr,                         // write from send buffer
+		chunkSize,                               // write this many bytes
+		5000                                     // timeout in milliseconds
 	);
 	if ( uStatus < 0 ) {
 		errRender(error, "doSend(): %s (%d)", usb_strerror(), uStatus);
@@ -267,10 +270,10 @@ static NeroStatus doReceive(
 	NeroStatus returnCode;
 	int uStatus = usb_bulk_read(
 		handle->device,
-		USB_ENDPOINT_IN | 4,    // read from endpoint 4
-		(char *)receivePtr,     // read into the receive buffer
-		chunkSize,              // read this many bytes
-		5000                    // timeout in milliseconds
+		USB_ENDPOINT_IN | handle->inEndpoint,  // read from in endpoint
+		(char *)receivePtr,                    // read into the receive buffer
+		chunkSize,                             // read this many bytes
+		5000                                   // timeout in milliseconds
 	);
 	if ( uStatus < 0 ) {
 		errRender(error, "doReceive(): %s (%d)", usb_strerror(), uStatus);
@@ -281,7 +284,7 @@ cleanup:
 	return returnCode;
 }
 
-// Find the size of the EP2OUT & EP4IN bulk endpoints (they must be the same)
+// Find the size of the out & in bulk endpoints (they must be the same)
 //
 static NeroStatus setEndpointSize(struct NeroHandle *handle, const char **error) {
 	NeroStatus returnCode;
@@ -289,8 +292,8 @@ static NeroStatus setEndpointSize(struct NeroHandle *handle, const char **error)
 	char descriptorBuffer[1024];  // TODO: Fix by doing two queries
 	char *ptr = descriptorBuffer;
 	uint8 endpointNum;
-	uint16 ep2size = 0;
-	uint16 ep4size = 0;
+	uint16 outEndpointSize = 0;
+	uint16 inEndpointSize = 0;
 	struct usb_config_descriptor *configDesc;
 	struct usb_interface_descriptor *interfaceDesc;
 	struct usb_endpoint_descriptor *endpointDesc;
@@ -319,31 +322,37 @@ static NeroStatus setEndpointSize(struct NeroHandle *handle, const char **error)
 		while ( endpointNum-- ) {
 			endpointDesc = (struct usb_endpoint_descriptor *)ptr;
 			if ( endpointDesc-> bmAttributes == 0x02 ) {
-				if ( endpointDesc->bEndpointAddress == 0x02 ) {
-					ep2size = littleEndian16(endpointDesc->wMaxPacketSize);
-				} else if ( endpointDesc->bEndpointAddress == 0x84 ) {
-					ep4size = littleEndian16(endpointDesc->wMaxPacketSize);
+				if ( endpointDesc->bEndpointAddress == handle->outEndpoint ) {
+					outEndpointSize = littleEndian16(endpointDesc->wMaxPacketSize);
+				} else if ( endpointDesc->bEndpointAddress == (handle->inEndpoint | 0x80) ) {
+					inEndpointSize = littleEndian16(endpointDesc->wMaxPacketSize);
 				}
 			}
 			ptr += endpointDesc->bLength;
 		}
 	}
-	if ( !ep2size ) {
+	if ( !outEndpointSize ) {
 		errRender(
-			error, "setEndpointSize(): EP2OUT not found or not configured as a bulk endpoint!");
+			error, "setEndpointSize(): EP%dOUT not found or not configured as a bulk endpoint!",
+			handle->outEndpoint
+		);
 		FAIL(NERO_ENDPOINTS);
 	}
-	if ( !ep4size ) {
+	if ( !inEndpointSize ) {
 		errRender(
-			error, "setEndpointSize(): EP4IN not found or not configured as a bulk endpoint!");
+			error, "setEndpointSize(): EP%dIN not found or not configured as a bulk endpoint!",
+			handle->inEndpoint
+		);
 		FAIL(NERO_ENDPOINTS);
 	}
-	if ( ep2size != ep4size ) {
+	if ( outEndpointSize != inEndpointSize ) {
 		errRender(
-			error, "setEndpointSize(): EP2OUT's wMaxPacketSize differs from that of EP4IN");
+			error, "setEndpointSize(): EP%dOUT's wMaxPacketSize differs from that of EP%dIN",
+			handle->outEndpoint, handle->inEndpoint
+		);
 		FAIL(NERO_ENDPOINTS);
 	}
-	handle->endpointSize = ep2size;
+	handle->endpointSize = outEndpointSize;
 	return NERO_SUCCESS;
 cleanup:
 	return returnCode;
