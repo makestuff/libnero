@@ -16,11 +16,6 @@
  */
 #include <makestuff.h>
 #include <libusbwrap.h>
-#ifdef WIN32
-	#include <lusb0_usb.h>
-#else
-	#include <usb.h>
-#endif
 #include <liberror.h>
 #include <vendorCommands.h>
 #include "libnero.h"
@@ -55,9 +50,9 @@ static NeroStatus doReceive(
 	struct NeroHandle *handle, uint8 *receivePtr, uint16 chunkSize, const char **error
 ) WARN_UNUSED_RESULT;
 
-static NeroStatus setEndpointSize(
-	struct NeroHandle *handle, const char **error
-) WARN_UNUSED_RESULT;
+//static NeroStatus setEndpointSize(
+//	struct NeroHandle *handle, const char **error
+//) WARN_UNUSED_RESULT;
 
 static NeroStatus setJtagMode(
 	struct NeroHandle *handle, bool enable, const char **error
@@ -77,8 +72,7 @@ NeroStatus neroInitialise(
 	handle->device = device;
 	handle->outEndpoint = outEndpoint;
 	handle->inEndpoint = inEndpoint;
-	nStatus = setEndpointSize(handle, error);
-	CHECK_STATUS(nStatus, "neroInitialise()", NERO_ENDPOINTS);
+	handle->endpointSize = 64;
 	nStatus = setJtagMode(handle, true, error);
 	CHECK_STATUS(nStatus, "neroInitialise()", NERO_ENABLE);
 	return NERO_SUCCESS;
@@ -156,23 +150,24 @@ cleanup:
 NeroStatus neroClockFSM(
 	struct NeroHandle *handle, uint32 bitPattern, uint8 transitionCount, const char **error)
 {
-	NeroStatus returnCode;
-	const uint32 lePattern = littleEndian32(bitPattern);
-	int uStatus = usb_control_msg(
+	NeroStatus returnCode = NERO_SUCCESS;
+	int uStatus;
+	union {
+		uint32 u32;
+		uint8 bytes[4];
+	} lePattern;
+	lePattern.u32 = littleEndian32(bitPattern);
+	uStatus = usbControlWrite(
 		handle->device,
-		USB_ENDPOINT_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 		CMD_JTAG_CLOCK_FSM,       // bRequest
 		(uint16)transitionCount,  // wValue
 		0x0000,                   // wIndex
-		(char*)&lePattern,
+		lePattern.bytes,          // bit pattern
 		4,                        // wLength
-		5000                      // timeout (ms)
+		5000,                     // timeout (ms)
+		error
 	);
-	if ( uStatus < 0 ) {
-		errRender(error, "neroClockFSM(): %s (%d)", usb_strerror(), uStatus);
-		FAIL(NERO_CLOCKFSM);
-	}
-	return NERO_SUCCESS;
+	CHECK_STATUS(uStatus, "neroClockFSM()", NERO_CLOCKFSM);
 cleanup:
 	return returnCode;
 }
@@ -180,22 +175,18 @@ cleanup:
 // Cycle the TCK line for the given number of times.
 //
 NeroStatus neroClocks(struct NeroHandle *handle, uint32 numClocks, const char **error) {
-	NeroStatus returnCode;
-	int uStatus = usb_control_msg(
+	NeroStatus returnCode = NERO_SUCCESS;
+	int uStatus = usbControlWrite(
 		handle->device,
-		USB_ENDPOINT_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 		CMD_JTAG_CLOCK,    // bRequest
 		numClocks&0xFFFF,  // wValue
 		numClocks>>16,     // wIndex
-		NULL,
+		NULL,              // no data
 		0,                 // wLength
-		5000               // timeout (ms)
+		5000,              // timeout (ms)
+		error
 	);
-	if ( uStatus < 0 ) {
-		errRender(error, "neroClocks(): %s (%d)", usb_strerror(), uStatus);
-		FAIL(NERO_CLOCKS);
-	}
-	return NERO_SUCCESS;
+	CHECK_STATUS(uStatus, "neroClocks()", NERO_CLOCKS);
 cleanup:
 	return returnCode;
 }
@@ -210,10 +201,14 @@ static NeroStatus beginShift(
 	struct NeroHandle *handle, uint32 numBits, SendType sendType, bool isLast,
 	bool isResponseNeeded, const char **error)
 {
-	NeroStatus returnCode;
-	const uint32 leNumBits = littleEndian32(numBits);
+	NeroStatus returnCode = NERO_SUCCESS;
 	uint16 wValue = 0x0000;
 	int uStatus;
+	union {
+		uint32 u32;
+		uint8 bytes[4];
+	} leNumBits;
+	leNumBits.u32 = littleEndian32(numBits);
 	if ( isLast ) {
 		wValue |= (1<<IS_LAST);
 	}
@@ -221,21 +216,17 @@ static NeroStatus beginShift(
 		wValue |= (1<<IS_RESPONSE_NEEDED);
 	}
 	wValue |= sendType << SEND_TYPE;
-	uStatus = usb_control_msg(
+	uStatus = usbControlWrite(
 		handle->device,
-		USB_ENDPOINT_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 		CMD_JTAG_CLOCK_DATA,  // bRequest
 		wValue,               // wValue
 		0x0000,               // wIndex
-		(char*)&leNumBits,      // send bit count
+	   leNumBits.bytes,      // send bit count
 		4,                    // wLength
-		5000                  // timeout (ms)
+		5000,                 // timeout (ms)
+		error
 	);
-	if ( uStatus < 0 ) {
-		errRender(error, "beginShift(): %s (%d)", usb_strerror(), uStatus);
-		FAIL(NERO_BEGIN_SHIFT);
-	}
-	return NERO_SUCCESS;
+	CHECK_STATUS(uStatus, "beginShift()", NERO_BEGIN_SHIFT);
 cleanup:
 	return returnCode;
 }
@@ -245,19 +236,16 @@ cleanup:
 static NeroStatus doSend(
 	struct NeroHandle *handle, const uint8 *sendPtr, uint16 chunkSize, const char **error)
 {
-	NeroStatus returnCode;
-	int uStatus = usb_bulk_write(
+	NeroStatus returnCode = NERO_SUCCESS;
+	int uStatus = usbBulkWrite(
 		handle->device,
-		USB_ENDPOINT_OUT | handle->outEndpoint,  // write to out endpoint
-		(char *)sendPtr,                         // write from send buffer
-		chunkSize,                               // write this many bytes
-		5000                                     // timeout in milliseconds
+		handle->outEndpoint,  // write to out endpoint
+		sendPtr,              // write from send buffer
+		chunkSize,            // write this many bytes
+		5000,                 // timeout in milliseconds
+		error
 	);
-	if ( uStatus < 0 ) {
-		errRender(error, "doSend(): %s (%d)", usb_strerror(), uStatus);
-		FAIL(NERO_SEND);
-	}
-	return NERO_SUCCESS;
+	CHECK_STATUS(uStatus, "doSend()", NERO_SEND);
 cleanup:
 	return returnCode;
 }
@@ -267,23 +255,21 @@ cleanup:
 static NeroStatus doReceive(
 	struct NeroHandle *handle, uint8 *receivePtr, uint16 chunkSize, const char **error)
 {
-	NeroStatus returnCode;
-	int uStatus = usb_bulk_read(
+	NeroStatus returnCode = NERO_SUCCESS;
+	int uStatus = usbBulkRead(
 		handle->device,
-		USB_ENDPOINT_IN | handle->inEndpoint,  // read from in endpoint
-		(char *)receivePtr,                    // read into the receive buffer
-		chunkSize,                             // read this many bytes
-		5000                                   // timeout in milliseconds
+		handle->inEndpoint,  // read from in endpoint
+		receivePtr,          // read into the receive buffer
+		chunkSize,           // read this many bytes
+		5000,                // timeout in milliseconds
+		error
 	);
-	if ( uStatus < 0 ) {
-		errRender(error, "doReceive(): %s (%d)", usb_strerror(), uStatus);
-		FAIL(NERO_RECEIVE);
-	}
-	return NERO_SUCCESS;
+	CHECK_STATUS(uStatus, "doReceive()", NERO_RECEIVE);
 cleanup:
 	return returnCode;
 }
 
+/*
 // Find the size of the out & in bulk endpoints (they must be the same)
 //
 static NeroStatus setEndpointSize(struct NeroHandle *handle, const char **error) {
@@ -357,27 +343,23 @@ static NeroStatus setEndpointSize(struct NeroHandle *handle, const char **error)
 cleanup:
 	return returnCode;
 }
+*/
 
 // Put the device in jtag mode (i.e drive or tristate the JTAG lines)
 //
 static NeroStatus setJtagMode(struct NeroHandle *handle, bool enable, const char **error) {
 	NeroStatus returnCode;
-	int uStatus = usb_control_msg(
+	int uStatus = usbControlWrite(
 		handle->device,
-		USB_ENDPOINT_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
-		CMD_MODE_STATUS,          // bRequest
-		enable ? MODE_JTAG : 0,   // wValue
-		MODE_JTAG,                // wMask
-		NULL,
-		0,                        // wLength
-		5000                      // timeout (ms)
+		CMD_MODE_STATUS,         // bRequest
+		enable ? MODE_JTAG : 0,  // wValue
+		MODE_JTAG,               // wMask
+		NULL,                    // no data
+		0,                       // wLength
+		5000,                    // timeout (ms)
+		error
 	);
-	if ( uStatus < 0 ) {
-		errRender(
-			error, "setJtagMode(): Unable to %s JTAG mode: %s (%d)",
-			enable ? "enable" : "disable", usb_strerror(), uStatus);
-		FAIL(NERO_ENABLE);
-	}
+	CHECK_STATUS(uStatus, "setJtagMode()", NERO_ENABLE);
 	return NERO_SUCCESS;
 cleanup:
 	return returnCode;
