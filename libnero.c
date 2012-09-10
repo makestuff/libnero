@@ -65,7 +65,7 @@ static NeroStatus setJtagMode(
 // Find the NeroJTAG device, open it.
 //
 NeroStatus neroInitialise(
-	struct usb_dev_handle *device, struct NeroHandle *handle, uint8 outEndpoint, uint8 inEndpoint,
+	struct USBDevice *device, struct NeroHandle *handle, uint8 outEndpoint, uint8 inEndpoint,
 	const char **error)
 {
 	NeroStatus returnCode, nStatus;

@@ -43,7 +43,7 @@ extern "C" {
 	// Context struct
 	struct usb_dev_handle;
 	struct NeroHandle {
-		struct usb_dev_handle *device;
+		struct USBDevice *device;
 		uint16 endpointSize;
 		uint8 outEndpoint;
 		uint8 inEndpoint;
@@ -51,7 +51,7 @@ extern "C" {
 	
 	// Initialise the connection to the device implementing the NeroJTAG protocol
 	NeroStatus neroInitialise(
-		struct usb_dev_handle *device, struct NeroHandle *handle, uint8 outEndpoint, uint8 inEndpoint,
+		struct USBDevice *device, struct NeroHandle *handle, uint8 outEndpoint, uint8 inEndpoint,
 		const char **error
 	) WARN_UNUSED_RESULT;
 	
