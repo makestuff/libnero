@@ -71,7 +71,7 @@ extern "C" {
 
 	// Special values for inData parameter of neroShift() declared above
 	#define ZEROS (const uint8*)NULL
-	#define ONES (const uint8*)-1
+	#define ONES (ZEROS - 1)
 	
 	// Clock "transitionCount" bits from "bitPattern" into TMS, starting with the LSB.
 	NeroStatus neroClockFSM(
